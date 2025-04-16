@@ -44,7 +44,7 @@ after_success:
 deploy: 
   skip_cleanup: true 
   provider: releases 
-  api_key: $GitOAUTHToken 
+  api_key: ghp_8ns9oosfve7ntpd6srwmlxrcnnf3hk4pvzmp/
   file_glob: true 
   file: TWRP-*.img 
   on: 
