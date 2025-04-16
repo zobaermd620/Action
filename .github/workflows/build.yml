@@ -55,5 +55,4 @@ branches:
   only: 
     - master 
   except: 
-    - /^(?i:untagged)-.*$/ 
-    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/ 
+    
