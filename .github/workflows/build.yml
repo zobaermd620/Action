@@ -20,9 +20,12 @@ jobs:
     timeout-minutes: 120
 
     steps:
-    # Fixed action references with explicit versions
-    - name: Checkout actions
-      uses: actions/checkout@v4
+    - name: Install repo tool
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y repo
+        mkdir -p ~/.bin
+        export PATH="$HOME/.bin:$PATH"
 
     - name: Initialize repo
       run: |
@@ -35,7 +38,7 @@ jobs:
         git clone https://github.com/zobaermd620/redmi14c-lake-twrp-device-tree.git \
           device/$MANUFACTURER/$DEVICE --depth=1
 
-    - name: Prepare build
+    - name: Prepare build environment
       run: |
         export WITH_TWRP=true
         [ "${{ inputs.clean_build }}" = "true" ] && make clean
@@ -44,9 +47,8 @@ jobs:
 
     - name: Build recovery
       run: |
-        mka -j$(nproc --all) recoveryimage || (echo "Build failed" && exit 1)
+        mka -j$(nproc --all) recoveryimage || (echo "Build failed!"; exit 1)
 
-    # Fixed artifact upload with proper version
     - name: Upload recovery image
       uses: actions/upload-artifact@v4
       with:
