@@ -3,10 +3,10 @@ name: TWRP 14 Minimal Build
 on:
   workflow_dispatch:
     inputs:
-      force_clean:
-        description: 'Force clean build'
+      clean_build:
+        description: 'Perform clean build'
         type: boolean
-        default: false
+        default: true
 
 env:
   DEVICE: lake
@@ -18,45 +18,38 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
-    container:
-      image: ghcr.io/slim-twrp-builder/android-14:latest
-      options: --privileged
 
     steps:
+    # Fixed action references with explicit versions
+    - name: Checkout actions
+      uses: actions/checkout@v4
+
     - name: Initialize repo
       run: |
         repo init -u $REPO_URL -b $TWRP_BRANCH --depth=1
-        repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --optimized-fetch
+        repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle
 
     - name: Add device tree
       run: |
         mkdir -p device/$MANUFACTURER/$DEVICE
         git clone https://github.com/zobaermd620/redmi14c-lake-twrp-device-tree.git \
-          device/$MANUFACTURER/$DEVICE --depth=1 --single-branch
+          device/$MANUFACTURER/$DEVICE --depth=1
 
     - name: Prepare build
       run: |
         export WITH_TWRP=true
-        export TW_DEVICE_VERSION=$(date +"%Y%m%d")
-        [ "${{ inputs.force_clean }}" = "true" ] && make clean
+        [ "${{ inputs.clean_build }}" = "true" ] && make clean
         . build/envsetup.sh
         lunch twrp_$DEVICE-eng
 
-    - name: Build recovery (quiet mode)
+    - name: Build recovery
       run: |
-        mka -j$(nproc --all) recoveryimage > >(tee build.log) 2> >(tee build.err >&2)
-        [ $? -eq 0 ] || { echo "Build failed"; exit 1; }
+        mka -j$(nproc --all) recoveryimage || (echo "Build failed" && exit 1)
 
-    - name: Generate minimal artifact
-      run: |
-        mkdir artifact
-        cp out/target/product/$DEVICE/recovery.img artifact/
-        echo "Build successful" > artifact/status.txt
-        tar -cf twrp_${DEVICE}_$(date +"%Y%m%d").tar -C artifact .
-
-    - name: Upload result
-      uses: actions/upload-artifact@v3
+    # Fixed artifact upload with proper version
+    - name: Upload recovery image
+      uses: actions/upload-artifact@v4
       with:
-        name: twrp14_$DEVICE
-        path: twrp_*.tar
+        name: twrp14-$DEVICE-$(date +"%Y%m%d")
+        path: out/target/product/$DEVICE/recovery.img
         retention-days: 3
