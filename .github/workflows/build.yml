@@ -1,55 +1,62 @@
-name: Build TWRP
+name: TWRP 14 Minimal Build
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
+    inputs:
+      force_clean:
+        description: 'Force clean build'
+        type: boolean
+        default: false
+
+env:
+  DEVICE: lake
+  MANUFACTURER: xiaomi
+  TWRP_BRANCH: twrp-14.0
+  REPO_URL: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    container:
+      image: ghcr.io/slim-twrp-builder/android-14:latest
+      options: --privileged
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Initialize repo
+      run: |
+        repo init -u $REPO_URL -b $TWRP_BRANCH --depth=1
+        repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --optimized-fetch
 
-      - name: Pull Droid-Builder Docker image
-        run: docker pull fr3akyphantom/droid-builder:latest
+    - name: Add device tree
+      run: |
+        mkdir -p device/$MANUFACTURER/$DEVICE
+        git clone https://github.com/zobaermd620/redmi14c-lake-twrp-device-tree.git \
+          device/$MANUFACTURER/$DEVICE --depth=1 --single-branch
 
-      - name: Prepare build directories
-        run: |
-          mkdir -p $HOME/twrp
-          cd $HOME/twrp
+    - name: Prepare build
+      run: |
+        export WITH_TWRP=true
+        export TW_DEVICE_VERSION=$(date +"%Y%m%d")
+        [ "${{ inputs.force_clean }}" = "true" ] && make clean
+        . build/envsetup.sh
+        lunch twrp_$DEVICE-eng
 
-          git clone --depth=1 -b twrp-12.1 https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git .
-          repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
-          repo sync -j$(nproc) --force-sync --no-clone-bundle --no-tags
+    - name: Build recovery (quiet mode)
+      run: |
+        mka -j$(nproc --all) recoveryimage > >(tee build.log) 2> >(tee build.err >&2)
+        [ $? -eq 0 ] || { echo "Build failed"; exit 1; }
 
-          mkdir -p device/xiaomi/lake
-          git clone https://github.com/zobaermd620/redmi14c-lake-twrp-device-tree.git device/xiaomi/lake
+    - name: Generate minimal artifact
+      run: |
+        mkdir artifact
+        cp out/target/product/$DEVICE/recovery.img artifact/
+        echo "Build successful" > artifact/status.txt
+        tar -cf twrp_${DEVICE}_$(date +"%Y%m%d").tar -C artifact .
 
-      - name: Build TWRP in Docker
-        run: |
-          docker run --rm -i \
-            -e USER_ID=$(id -u) -e GROUP_ID=$(id -g) \
-            -v "$HOME/twrp:/home/builder/twrp/:rw,z" \
-            -v "${HOME}/.ccache:/srv/ccache:rw,z" \
-            fr3akyphantom/droid-builder bash << EOF
-            cd /home/builder/twrp/
-            source build/envsetup.sh
-            lunch twrp_lake-eng
-            mka recoveryimage
-          EOF
-
-      - name: Rename output
-        run: |
-          cd $HOME/twrp
-          version=$(grep "TW_MAIN_VERSION_STR" bootable/recovery/variables.h | cut -d '"' -f2)
-          cp out/target/product/lake/recovery.img TWRP-${version}-lake-$(date +"%Y%m%d")-Unofficial.img
-
-      - name: Upload to GitHub Releases
-        uses: softprops/action-gh-release@v1
-        with:
-          files: $HOME/twrp/TWRP-*.img
-        env:
-          GITHUB_TOKEN: ghp_8ns9oosfve7ntpd6srwmlxrcnnf3hk4pvzmp
+    - name: Upload result
+      uses: actions/upload-artifact@v3
+      with:
+        name: twrp14_$DEVICE
+        path: twrp_*.tar
+        retention-days: 3
